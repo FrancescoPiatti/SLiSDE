@@ -1,0 +1,130 @@
+# exp_toy — long-path (2048-step) toy-dataset grid (v2 vanilla-only).
+#
+# v2 keeps only:
+#   stacking_mode      ∈ {"residual", "gated_in_flow", "diag_gated_in_flow"}
+#   time_gate_variant  ∈ {"none", "base_time3"}
+# and adds:
+#   use_causal_conv    ∈ {true, false}        (in-flow modes only)
+#   causal_conv_kernel_size                   (only when use_causal_conv=true)
+#
+# Single section ``exp1`` — vanilla 4-component MSE loss (no Girsanov).
+# A separate ``neural_sde`` section provides the Neural-SDE benchmark.
+
+# ───────────────────────── exp1: vanilla SLiSDE ───────────────────────
+vanilla:
+  stacking_mode: ["residual", "gated_in_flow"]
+  matrix_type: ["blockdiag"]
+  dim: [32, 64]
+  num_layers: [2, 3]
+  noise_rho: [1.0]
+  # noise_rho: [0.6, 0.9, 1.0]
+  time_dependent_vector_fields: [false, true]
+
+  noise_dim: [16]
+  parallel_steps: [32]
+  activation: ["gelu"]
+  block_size: [8, 16]
+  lora_rank: [0, 8]
+  time_embed_dim: [8]
+
+  noise_type: ["general"]
+  n_steps: [2048]
+  T: [1.0]
+  norm_type: ["none", "rms", "layer"]
+  output_dim: [1]
+  augment_brownian_with_time: [true]
+
+  # New v2 feature: optional causal 1D conv on x_prev between stacked layers.
+  # ``residual`` mode skips this combo automatically (does not consume x_prev).
+  use_causal_conv: [false, true]
+  causal_conv_kernel_size: [8]
+
+  # Diag-gated final-scale cap (only meaningful for diag_gated_in_flow).
+  final_scale: [0.1]
+
+  # Stack (t, t², sin ωt, cos ωt) onto the diag_gated_in_flow gate input
+  # AFTER the optional causal conv and AFTER the norm.  Only consumed by
+  # the diag_gated_in_flow stacking mode; ignored otherwise.
+  diag_use_time_features: [false, true]
+
+# ───────────────────────── Girsanov (last-layer tilt) ────────────────
+girsanov:
+  use_girsanov: [true]
+  tilt_type: ["state_space", "fft"]
+  kernel_size: [64]
+  context_dim: [0]
+  girsanov_use_z_dependence: [false, true]
+  girsanov_z_project_dim: [0]
+
+  # Correlation between the shared prefix Brownian and the last-layer
+  # Brownian in the Girsanov pass.  See
+  # v2/latex/girsanov_correlated_lastlayer.tex.
+  girsanov_last_layer_rho: [0.0, 0.5, 0.85, 0.95]
+
+  stacking_mode: ["residual", "gated_in_flow"]
+  matrix_type: ["blockdiag"]
+  dim: [64]
+  num_layers: [2, 3]
+  noise_rho: [1.0]
+  time_dependent_vector_fields: [false, true]
+
+  noise_dim: [16]
+  parallel_steps: [32]
+  activation: ["gelu"]
+  block_size: [8]
+  lora_rank: [0]
+  time_embed_dim: [8]
+
+  noise_type: ["general"]
+  n_steps: [2048]
+  T: [1.0]
+  norm_type: ["rms"]
+  output_dim: [1]
+  augment_brownian_with_time: [true]
+
+  use_causal_conv: [false, true]
+  causal_conv_kernel_size: [8]
+  final_scale: [0.1]
+  diag_use_time_features: [true]
+
+# ───────────────────────── Neural-SDE benchmark ───────────────────────
+neural_sde:
+  dim: [32, 64]
+  noise_dim: [16]
+  hidden_dim: [128]
+  num_hidden_layers: [2, 3]
+  diffusion_type: ["full"]
+  activation: ["gelu"]
+  n_steps: [2048]
+  T: [1.0]
+  output_dim: [1]
+  norm_type: ["none", "rms", "layer"]
+
+# ───────────────────────── SLiCE benchmark ────────────────────────────
+# Port of the NeurIPS-2025 spotlight (datasig-ac-uk/slices).
+# Brownian motion drives the stack: ``bm_input_type='path'`` feeds W_t
+# with ``path_mode='values'`` (SLiCE differentiates internally → driving
+# = dW), ``bm_input_type='increments'`` feeds dW directly.
+# block_size=1 with diagonal_dense=False ⇒ Mamba-1-style elementwise SSM.
+slice:
+  num_layers: [3, 4]
+  hidden_dim: [64, 128]
+  noise_dim: [16]
+  output_dim: [1]
+  block_size: [1, 8]
+  diagonal_dense: [false]
+  bias: [true]
+  init_std: [0.01]
+  scale: [1.0]
+  path_mode: ["values"]
+  transition_mode: ["euler"]
+  norm_type: ["rmsnorm"]
+  prenorm: [true]
+  second_norm: [true]
+  ff_style: ["mlp"]
+  ff_activation: ["gelu"]
+  ff_mult: [4]
+  dropout_position: ["residual"]
+  n_steps: [2048]
+  T: [1.0]
+  bm_input_type: ["path"]

@@ -1,0 +1,127 @@
+# exp_dax — long-path (2048-step) DAX calibration grid.
+#
+# Two SLiSDE sections:
+#   * ``vanilla``  — masked-strike MSE under P (VanillaTrainer).
+#   * ``girsanov`` — last-layer-only Girsanov tilt (GirsanovTrainer);
+#                    OTM/digital losses use SNIS under Q after warm-up.
+
+# ───────────────────────── Vanilla (no Girsanov) ──────────────────────
+vanilla:
+  stacking_mode: ["residual", "gated_in_flow"]
+  matrix_type: ["diag", "blockdiag"]
+  dim: [32, 64]
+  num_layers: [2, 3]
+  # noise_rho: [0.6, 0.9, 1.0]
+  noise_rho: [1.0]
+  time_dependent_vector_fields: [false, true]
+
+  noise_dim: [16]
+  parallel_steps: [32]
+  activation: ["gelu"]
+  block_size: [8, 16]
+  lora_rank: [0, 8]
+  time_embed_dim: [8]
+
+  noise_type: ["general"]
+  n_steps: [2048]
+  T: [1.0]
+  norm_type: ["rms", "layer"]
+  output_dim: [1]
+  augment_brownian_with_time: [true]
+
+  # v2 feature: optional causal 1D conv on x_prev between stacked layers.
+  use_causal_conv: [false, true]
+  causal_conv_kernel_size: [8]
+
+  # Diag-gated final-scale cap (only meaningful for diag_gated_in_flow).
+  final_scale: [0.1]
+
+  # Stack (t, t², sin ωt, cos ωt) onto the diag_gated_in_flow gate input
+  # AFTER the optional causal conv and AFTER the norm.  Only consumed by
+  # the diag_gated_in_flow stacking mode; ignored otherwise.
+  diag_use_time_features: [false, true]
+
+# ───────────────────────── Girsanov (last-layer tilt) ────────────────
+girsanov:
+  use_girsanov: [true]
+  # v3 dax girsanov always trains TWO controllers (OTM-put + OTM-call).
+  num_girsanov: [2]
+  tilt_type: ["state_space", "fft"]
+  kernel_size: [64]
+  context_dim: [0]
+  girsanov_use_z_dependence: [false, true]
+  girsanov_z_project_dim: [0]
+
+  # Correlation between the shared prefix Brownian and the last-layer
+  # Brownian in the Girsanov pass.  rho=0.0 → fully tilted last-layer
+  # noise; rho=1.0 → shared (no tilt freedom).  See
+  # v2/latex/girsanov_correlated_lastlayer.tex for the construction.
+  girsanov_last_layer_rho: [0.0, 0.5, 0.85, 0.95]
+
+  # Backbone — keep the search small for the Girsanov sweep; pick the
+  # best vanilla recipe and only sweep the new tilt knobs.
+  stacking_mode: ["residual", "gated_in_flow"]
+  matrix_type: ["blockdiag"]
+  dim: [64]
+  num_layers: [2, 3]
+  noise_rho: [1.0]
+  time_dependent_vector_fields: [false, true]
+
+  noise_dim: [16]
+  parallel_steps: [32]
+  activation: ["gelu"]
+  block_size: [8]
+  lora_rank: [0]
+  time_embed_dim: [8]
+
+  noise_type: ["general"]
+  n_steps: [2048]
+  T: [1.0]
+  norm_type: ["rms"]
+  output_dim: [1]
+  augment_brownian_with_time: [true]
+
+  use_causal_conv: [false, true]
+  causal_conv_kernel_size: [8]
+  final_scale: [0.1]
+  diag_use_time_features: [true]
+
+# ───────────────────────── Neural-SDE benchmark ───────────────────────
+neural_sde:
+  dim: [32, 64]
+  noise_dim: [16]
+  hidden_dim: [128]
+  num_hidden_layers: [2, 3]
+  diffusion_type: ["full"]
+  activation: ["gelu"]
+  n_steps: [2048]
+  T: [1.0]
+  output_dim: [1]
+  norm_type: ["none", "rms", "layer"]
+
+# ───────────────────────── SLiCE benchmark ────────────────────────────
+# Port of the NeurIPS-2025 spotlight (datasig-ac-uk/slices).
+# Brownian motion drives the stack — same noise budget as SLiSDE/NSDE.
+# block_size=1, diagonal_dense=False ⇒ Mamba-1-style elementwise SSM.
+slice:
+  num_layers: [3, 4]
+  hidden_dim: [64, 128]
+  noise_dim: [16]
+  output_dim: [1]
+  block_size: [1, 8]
+  diagonal_dense: [false]
+  bias: [true]
+  init_std: [0.01]
+  scale: [1.0]
+  path_mode: ["values"]
+  transition_mode: ["euler"]
+  norm_type: ["rmsnorm"]
+  prenorm: [true]
+  second_norm: [true]
+  ff_style: ["mlp"]
+  ff_activation: ["gelu"]
+  ff_mult: [4]
+  dropout_position: ["residual"]
+  n_steps: [2048]
+  T: [1.0]
+  bm_input_type: ["path"]
